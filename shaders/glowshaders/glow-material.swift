@@ -1,5 +1,5 @@
 import RealityKit
-import ShaderGraph
+import Metal
 
 struct GlowMaterialParameters {
     var intensity: Float
@@ -15,47 +15,56 @@ struct GlowMaterialParameters {
     )
 }
 
+enum GlowMaterialError: Error {
+    case shaderNotFound
+    case failedToLoadShader
+}
+
 class GlowMaterial {
-    private let material: ShaderMaterial
+    private var material: CustomMaterial
     
     init(parameters: GlowMaterialParameters = .default) throws {
-        let descriptor = ShaderMaterialDescriptor(
-            name: "GlowMaterial",
-            surfaces: [
-                .unlit: ShaderSurface(
-                    vertex: .custom("glow_vertex"),
-                    fragment: .custom("glow_fragment")
-                )
-            ],
-            parameters: [
-                "glowIntensity": .float(parameters.intensity),
-                "glowColor": .float4(parameters.color),
-                "glowRadius": .float(parameters.radius),
-                "glowFalloff": .float(parameters.falloff)
-            ]
-        )
-        
-        // Load shader source from GlowShader.metal file
-        guard let shaderURL = Bundle.main.url(forResource: "GlowShader", withExtension: "metal"),
-              let shaderSource = try? String(contentsOf: shaderURL, encoding: .utf8) else {
+        // Load shader code from Metal file
+        guard let shaderURL = Bundle.main.url(forResource: "GlowShader", withExtension: "metal") else {
             throw GlowMaterialError.shaderNotFound
         }
         
-        material = try ShaderMaterial(descriptor: descriptor, functionSource: shaderSource)
+        let shaderSource: String
+        do {
+            shaderSource = try String(contentsOf: shaderURL, encoding: .utf8)
+        } catch {
+            throw GlowMaterialError.failedToLoadShader
+        }
+        
+        // Create custom material
+        material = try CustomMaterial(
+            name: "GlowMaterial",
+            librarySource: shaderSource,
+            lightingModel: .unlit,
+            parameters: [
+                "intensity": .float(parameters.intensity),
+                "color": .float4(parameters.color),
+                "radius": .float(parameters.radius),
+                "falloff": .float(parameters.falloff)
+            ]
+        )
     }
     
-    func getMaterial() -> ShaderMaterial {
+    func getMaterial() -> CustomMaterial {
         return material
     }
     
     func updateParameters(_ parameters: GlowMaterialParameters) {
-        material.setParameter("glowIntensity", value: .float(parameters.intensity))
-        material.setParameter("glowColor", value: .float4(parameters.color))
-        material.setParameter("glowRadius", value: .float(parameters.radius))
-        material.setParameter("glowFalloff", value: .float(parameters.falloff))
+        material.setParameter("intensity", value: .float(parameters.intensity))
+        material.setParameter("color", value: .float4(parameters.color))
+        material.setParameter("radius", value: .float(parameters.radius))
+        material.setParameter("falloff", value: .float(parameters.falloff))
     }
 }
 
-enum GlowMaterialError: Error {
-    case shaderNotFound
+// Helper to ensure shader file is included in bundle
+extension Bundle {
+    var metalLibURL: URL? {
+        url(forResource: "default", withExtension: "metallib")
+    }
 }

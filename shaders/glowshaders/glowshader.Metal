@@ -1,61 +1,59 @@
 #include <metal_stdlib>
+#include <RealityKit/RealityKit.h>
+
 using namespace metal;
 
-struct VertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv [[attribute(2)]];
-};
-
-struct VertexOut {
-    float4 position [[position]];
-    float3 worldPosition;
-    float3 worldNormal;
-    float2 uv;
-};
-
-struct Uniforms {
+struct GlowVertexUniforms {
     float4x4 modelMatrix;
     float4x4 viewProjectionMatrix;
-    float3 cameraPosition;
-    float glowIntensity;
-    float4 glowColor;
-    float glowRadius;
-    float glowFalloff;
 };
 
-vertex VertexOut glow_vertex(VertexIn in [[stage_in]],
-                            constant Uniforms& uniforms [[buffer(0)]]) {
-    VertexOut out;
-    
-    float4 worldPosition = uniforms.modelMatrix * float4(in.position, 1.0);
-    out.position = uniforms.viewProjectionMatrix * worldPosition;
-    out.worldPosition = worldPosition.xyz;
-    out.worldNormal = (uniforms.modelMatrix * float4(in.normal, 0.0)).xyz;
-    out.uv = in.uv;
-    
-    return out;
+struct GlowFragmentUniforms {
+    float intensity;
+    float4 color;
+    float radius;
+    float falloff;
+    float3 cameraPosition;
+};
+
+[[visible]]
+void glow_vertex(realitykit::vertex_parameters params) {
+    params.geometry();
 }
 
-fragment float4 glow_fragment(VertexOut in [[stage_in]],
-                            constant Uniforms& uniforms [[buffer(0)]]) {
-    float3 normal = normalize(in.worldNormal);
-    float3 viewDirection = normalize(uniforms.cameraPosition - in.worldPosition);
+[[visible]]
+void glow_fragment(realitykit::fragment_parameters params) {
+    auto surface = params.surface();
     
-    // Enhanced Fresnel effect
-    float fresnel = 1.0 - max(dot(normal, viewDirection), 0.0);
-    fresnel = pow(fresnel, uniforms.glowFalloff) * uniforms.glowIntensity;
+    // Get custom parameters
+    float intensity = params.uniforms().custom().intensity;
+    float4 glowColor = params.uniforms().custom().color;
+    float radius = params.uniforms().custom().radius;
+    float falloff = params.uniforms().custom().falloff;
     
-    // Radial glow
-    float radialGlow = length(in.uv - 0.5) * uniforms.glowRadius;
+    // Calculate view direction
+    float3 worldNormal = normalize(params.geometry().world_normal());
+    float3 viewDirection = normalize(params.uniforms().world_camera_position() - 
+                                  params.geometry().world_position());
+    
+    // Calculate fresnel effect
+    float fresnel = 1.0 - max(dot(worldNormal, viewDirection), 0.0);
+    fresnel = pow(fresnel, falloff) * intensity;
+    
+    // Calculate radial glow
+    float2 uv = params.geometry().uv0();
+    float radialGlow = length(uv - 0.5) * radius;
     radialGlow = 1.0 - smoothstep(0.0, 1.0, radialGlow);
     
     // Combine effects
     float glowFactor = mix(fresnel, radialGlow, 0.5);
     
-    // Final color with glow
-    float4 finalColor = uniforms.glowColor;
-    finalColor.rgb += uniforms.glowColor.rgb * glowFactor;
+    // Set final color
+    half4 finalColor = half4(glowColor);
+    finalColor.rgb += glowFactor * glowColor.rgb;
     
-    return finalColor;
+    surface.set_base_color(finalColor);
+    surface.set_roughness(0.0h);
+    surface.set_metallic(0.0h);
+    surface.set_opacity(finalColor.a);
 }
