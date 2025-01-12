@@ -1,9 +1,33 @@
 import SwiftUI
 import RealityKit
 
-// MARK: - Controls
+struct GlowObjectView: View {
+    let mesh: MeshResource
+    @Binding var parameters: GlowParameters
+    
+    @State private var glowMaterial: GlowMaterial?
+    
+    var body: some View {
+        RealityView { content in
+            // Create material and entity
+            do {
+                let material = try GlowMaterial(parameters: parameters)
+                let entity = ModelEntity(mesh: mesh, materials: [material.getMaterial()])
+                content.add(entity)
+                
+                glowMaterial = material
+            } catch {
+                print("Failed to create glow material: \(error)")
+            }
+        } update: { _ in
+            // Update material parameters
+            glowMaterial?.updateParameters(parameters)
+        }
+    }
+}
+
 struct GlowControls: View {
-    @Binding var parameters: GlowMaterialParameters
+    @Binding var parameters: GlowParameters
     
     var body: some View {
         Form {
@@ -20,59 +44,43 @@ struct GlowControls: View {
                     Text("Falloff")
                 }
                 
-                ColorPicker("Color", selection: Binding(
-                    get: { Color(.sRGB,
-                               red: Double(parameters.color.x),
+                ColorPicker("Glow Color", selection: Binding(
+                    get: { Color(red: Double(parameters.color.x),
                                green: Double(parameters.color.y),
                                blue: Double(parameters.color.z),
-                               opacity: Double(parameters.color.w))
-                    },
+                               opacity: Double(parameters.color.w)) },
                     set: { newColor in
-                        let components = newColor.components
-                        parameters.color = SIMD4<Float>(
-                            Float(components.red),
-                            Float(components.green),
-                            Float(components.blue),
-                            Float(components.opacity)
-                        )
+                        if let components = try? newColor.cgColor?.components {
+                            parameters.color = SIMD4<Float>(
+                                Float(components[0]),
+                                Float(components[1]),
+                                Float(components[2]),
+                                Float(components[3])
+                            )
+                        }
                     }
                 ))
             }
         }
         .formStyle(.grouped)
-        .padding()
         .frame(width: 320)
+        .padding()
     }
 }
 
-// MARK: - Glow Object
-struct GlowObject: View {
-    let mesh: MeshResource
-    @Binding var parameters: GlowMaterialParameters
-    
-    private var glowMaterial: GlowMaterial?
-    
-    init(mesh: MeshResource, parameters: Binding<GlowMaterialParameters>) {
-        self.mesh = mesh
-        self._parameters = parameters
-        
-        do {
-            self.glowMaterial = try GlowMaterial(parameters: parameters.wrappedValue)
-        } catch {
-            print("Failed to create glow material: \(error)")
-        }
-    }
+// Example usage
+struct ContentView: View {
+    @State private var parameters = GlowParameters.default
     
     var body: some View {
-        RealityView { content in
-            guard let material = glowMaterial?.getMaterial() else { return }
+        HStack {
+            GlowObjectView(
+                mesh: .generateSphere(radius: 0.1),
+                parameters: $parameters
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             
-            let entity = ModelEntity(mesh: mesh, materials: [material])
-            content.add(entity)
-            
-        } update: { content in
-            guard let material = glowMaterial else { return }
-            material.updateParameters(parameters)
+            GlowControls(parameters: $parameters)
         }
     }
 }
